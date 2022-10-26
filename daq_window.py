@@ -52,10 +52,14 @@ class StartWindow(QMainWindow):
         #     self.daq.start_aquisition()
         # finally:
         #     self.daq.stop_aquisition()
+		
+		if not self.daq.isOnShutter:
+            self.shutter_clicked()
         
         self.daq.fast_aquisition_camera_leader(self.awf,
                                                1/(self.scan_freq.value()*self.exp_time.value()/1000))
-        
+        self.shutter_clicked()
+		
         self.plotData()
         
     def live_view(self):

@@ -67,13 +67,12 @@ class Daq(QObject):
         self.duration = self.n_samples / self.sample_freq
         samplesPerTrigger = self.sample_freq/wf_freq
         with nidaqmx.Task() as outtask, nidaqmx.Task() as aintask, \
-        nidaqmx.Task() as dintask, nidaqmx.Task() as countertask:
+        nidaqmx.Task() as dintask, nidaqmx.Task() as countertask, nidaqmx.Task() as shutterTask:
 
             countertask.co_channels.add_co_pulse_chan_freq("Dev1/ctr0", freq=self.sample_freq)
             countertask.timing.cfg_implicit_timing(sample_mode=AcquisitionType.FINITE, samps_per_chan=int(samplesPerTrigger))
             countertask.triggers.start_trigger.cfg_dig_edge_start_trig(trigger_source="/Dev1/PFI1")
             countertask.triggers.start_trigger.retriggerable = True
-                
                 
             outtask.ao_channels.add_ao_voltage_chan(self.daq_name + "ao0:1", max_val=10, min_val=-10)
             outtask.timing.cfg_samp_clk_timing(
@@ -81,7 +80,10 @@ class Daq(QObject):
             source="/Dev1/Ctr0InternalOutput",
             active_edge=Edge.RISING,
             sample_mode=AcquisitionType.FINITE, samps_per_chan=self.n_samples)
-            
+			
+			shutterTask.do_channels.add_do_chan(self.daq_name + 'port1/line0'):
+            shutterTask.triggers.start_trigger.cfg_dig_edge_start_trig(trigger_source="/Dev1/PFI1")
+			
             aintask.ai_channels.add_ai_voltage_chan(self.daq_name + "ai0:1")
             aintask.timing.cfg_samp_clk_timing(self.sample_freq, source="",
                                               active_edge=Edge.RISING,
@@ -99,14 +101,19 @@ class Daq(QObject):
             
         
             outtask.write(awaveform)
+			shutterTask.write(True)
+            shutterTask.start()
+            self.isOnShutter = True
             outtask.start()
             aintask.start()
             dintask.start()
-            countertask.start()
+            countertask.start()self.shutter()
             self.adata = np.asarray(aintask.read(self.n_samples, 
                                                     timeout=self.duration + 10))
             self.ddata = np.asarray(dintask.read(self.n_samples,
                                                       timeout=self.duration + 10))
+													  
+		self.shutter()
             
     def start_aquisition(self):
         # self.outtask.start()
