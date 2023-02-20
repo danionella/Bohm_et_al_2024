@@ -5,10 +5,13 @@ from PyQt5.QtGui import QDoubleValidator
 import numpy as np
 from scipy import signal
 import pyqtgraph as pg
-from PyQt5.QtCore import QThread, Qt, QTimer
+from PyQt5.QtCore import QThread, Qt, QTimer, pyqtSignal
 from waveforms import Waveforms
+from autofocus import Autofocus
 from glob import glob
 import re
+from QLed import QLed
+
 # from time import sleep
 
 class StartWindow(QMainWindow):
@@ -22,11 +25,13 @@ class StartWindow(QMainWindow):
                             2.029975214187555e-06)
         self.generate_layout()
         self.connect_signals()
+        self.CalibrateLed.value = False
         
         
       
         self.ls_position.setValue(-0.122*self.wf.ls_scale + self.wf.ls_intercept)
         self.vc_position.setValue(-0.122)
+        
         # self.thread = QThread()
         # self.daq.moveToThread(self.thread)
         # self.thread.started.connect(self.daq.continous_aq)
@@ -44,7 +49,9 @@ class StartWindow(QMainWindow):
         self.awf, self.dwf = self.wf.fast_waveform(self.scan_freq.value(), self.stack_size.value(),
                                          self.vc_position.value(), self.exp_time.value()/1000,
                                          self.duration_input.value(), self.delay.value(),
-                                         self.cam_delay.value())
+                                         self.cam_delay.value(), self.stBox.checkState(),
+                                         self.stim_position.value(), self.stim_duration.value(),
+                                         self.stim_frequency.value(), self.stim_amplitude.value())
         # try:
         #     self.daq.setup_aquisition(self.awf, self.dwf)
         # # self.daq.test_aquisition()
@@ -52,14 +59,10 @@ class StartWindow(QMainWindow):
         #     self.daq.start_aquisition()
         # finally:
         #     self.daq.stop_aquisition()
-		
-		if not self.daq.isOnShutter:
-            self.shutter_clicked()
         
-        self.daq.fast_aquisition_camera_leader(self.awf,
-                                               1/(self.scan_freq.value()*self.exp_time.value()/1000))
-        self.shutter_clicked()
-		
+        # self.daq.fast_aquisition_camera_leader(self.awf,
+        #                                        1/(self.scan_freq.value()*self.exp_time.value()/1000))
+        self.daq.fast_aquisition_camera_follower(self.awf, self.dwf)
         self.plotData()
         
     def live_view(self):
@@ -91,7 +94,16 @@ class StartWindow(QMainWindow):
         self.plot.plot(time, plotData2, pen='g')
         self.plot.plot(time, self.awf[0,:], pen='y')
         self.plot.plot(time, self.awf[1,:], pen='m')
+        self.plot.plot(time, self.awf[2,:], pen='c')
         self.plot.plot(time, plotData3, pen='b')
+        
+        plot2Data1 = (plotData1 - self.wf.vc_lin_intercept)/self.wf.vc_lin_slope
+        plot2Data2 = (plotData2 - self.wf.ls_lin_intercept)/self.wf.ls_lin_slope
+        plot2Data2 = (plot2Data2 - self.wf.ls_intercept)/self.wf.ls_scale
+        
+        self.plot2.clear()
+        self.plot2.plot(time, plot2Data1, pen='r')
+        self.plot2.plot(time, plot2Data2, pen='g')
         
         if self.SaveDataChk.checkState():
             saveData = np.vstack((time, plotData1, plotData2, plotData3,
@@ -192,7 +204,8 @@ class StartWindow(QMainWindow):
         awf, dwf = self.wf.psf_stack(self.vc_position.value(), 
                             self.stack_size.value(),
                             self.n_steps.value(),
-                            self.exp_time.value())
+                            self.exp_time.value(),
+                            self.step_size.value())
         if not self.daq.isOnShutter:
             self.shutter_clicked()
         self.daq.acquire_stack(awf, dwf)
@@ -215,7 +228,8 @@ class StartWindow(QMainWindow):
         awf, dwf = self.wf.calibration_stack(self.pos1, 
                             self.pos2,
                             self.n_steps.value(),
-                            self.exp_time.value())
+                            self.exp_time.value(),
+                            self.step_size.value())
         if not self.daq.isOnShutter:
             self.shutter_clicked()
         self.daq.acquire_stack(awf, dwf)
@@ -236,6 +250,7 @@ class StartWindow(QMainWindow):
         
     def calibrate_lightsheet_clicked(self):
         self.autofocuswind = AutoFocusWindow()
+        self.autofocuswind.applyClicked.connect(lambda x: self.manual_calibration_values_clicked(x[0], x[1]))
         self.autofocuswind.show()
         
     def calibrate_waveform(self):
@@ -245,11 +260,19 @@ class StartWindow(QMainWindow):
         #                                len(self.daq.adata[1,:]))
         # self.xpeak = lags[xcorr.argmax()]
         # self.delay.setValue(self.xpeak)
-        self.wf.calibrate_fft(self.awf, self.daq.adata[0:2,:])
+        linawf = self.wf.ramp()
+        lindata = self.daq.acquire_linear_calibration(linawf)
+        self.wf.calibrate_fft(self.awf, self.daq.adata[0:2,:], linawf, lindata)
+        if self.wf.kernel_vc is not None and self.wf.kernel_ls is not None:
+            self.CalibrateLed.value = True
+        else:
+            self.CalibrateLed.value = False
+            
         
     def clear_calibration_clicked(self):
         self.wf.kernel_ls = None
         self.wf.kernel_vc = None
+        self.CalibrateLed.value = False
         
     def pulse_response_clicked(self):
         self.awf = self.wf.pulses(10, 1, 0.2, self.vc_position.value())
@@ -294,9 +317,11 @@ class StartWindow(QMainWindow):
         
         self.plotData()
 
-    def manual_calibration_values_clicked(self):
-        self.wf.ls_scale = self.ls_scale.value()
-        self.wf.ls_intercept = self.ls_intercept.value()
+    def manual_calibration_values_clicked(self, ls_scale, ls_intercept):
+        self.wf.ls_scale = ls_scale
+        self.ls_scale.setValue(ls_scale)
+        self.wf.ls_intercept = ls_intercept
+        self.ls_intercept.setValue(ls_intercept)
         
     def generate_layout(self):
         self.central_widget = QWidget()
@@ -336,15 +361,27 @@ class StartWindow(QMainWindow):
         # input fields
         self.duration_input = QDoubleSpinBox(self.central_widget)
         self.duration_input_label = QLabel('Duration')
+        self.duration_input.setValue(1.0)
         
         self.scan_freq = QDoubleSpinBox(self.central_widget)
         self.scan_freq_label = QLabel('Scan Frequency')
+        self.scan_freq.setValue(8)
         
         self.cam_freq = QDoubleSpinBox(self.central_widget)
         self.cam_freq_label = QLabel('Camera Frequency')
         
         self.delay = QSpinBox(self.central_widget, minimum=0, maximum=10000)
         self.delay_label = QLabel('Delay')
+        
+        self.stim_label = QLabel('Stimulus:')
+        self.stim_duration = QDoubleSpinBox(self.central_widget, minimum=0, singleStep=1)
+        self.stim_duration_label = QLabel('duration (ms):')
+        self.stim_position = QDoubleSpinBox(self.central_widget, minimum=0, singleStep=0.001, decimals=3)
+        self.stim_position_label = QLabel('position (s):')
+        self.stim_frequency = QDoubleSpinBox(self.central_widget, minimum=0, maximum=self.daq.sample_freq/2)
+        self.stim_frequency_label = QLabel('frequency (Hz):') 
+        self.stim_amplitude = QDoubleSpinBox(self.central_widget, minimum=0, singleStep=0.001, decimals=3)
+        self.stim_amplitude_label = QLabel('amplitude (V):')
         
         self.cam_delay = QDoubleSpinBox(self.central_widget, minimum=0.0, maximum=1.0)
         self.cam_delay_label = QLabel('cam delay (x 2Pi)')
@@ -361,8 +398,12 @@ class StartWindow(QMainWindow):
                                        singleStep=0.1, decimals=2, 
                                        parent=self.central_widget)
         self.exp_time_label = QLabel('exposure time')
-        self.exp_time.setValue(50.0)
+        self.exp_time.setValue(0.25)
         # self.DelayTxt.setReadOnly(True)
+        
+        self.step_size = QDoubleSpinBox(minimum=0, maximum=100, singleStep=0.001, decimals=4,
+                                        parent=self.central_widget)
+        self.step_size_label = QLabel('step size (V)')
         
         self.ls_position = QDoubleSpinBox(singleStep=0.001, maximum=10,
                                           minimum=-10, decimals=3, 
@@ -391,10 +432,19 @@ class StartWindow(QMainWindow):
         self.end_freq = QDoubleSpinBox(minimum=1.0, maximum=1000.0, parent=self.central_widget)
         self.end_freq_label = QLabel('end freq')
         
+        self.stBox = QCheckBox("sawtooth",self)
+        
       
 
         # plots
-        self.plot = pg.PlotWidget()
+        self.glw = pg.GraphicsLayoutWidget()
+        self.plot = self.glw.addPlot(row=0, col=0)
+        self.plot2 = self.glw.addPlot(row=1, col=0)
+        self.plot.setXLink(self.plot2)
+        # self.plot = pg.PlotWidget()
+        
+        # indicators
+        self.CalibrateLed=QLed(self, onColour=QLed.Green, shape=QLed.Circle)
         
         # layout
         
@@ -402,14 +452,27 @@ class StartWindow(QMainWindow):
         self.layout1 = QFormLayout(self.sub_widget1)
         self.layout1.addRow(self.duration_input_label, self.duration_input)
         self.layout1.addRow(self.scan_freq_label, self.scan_freq)
+        self.layout1.addRow(self.stBox)
         self.layout1.addRow(self.cam_freq_label, self.cam_freq)
         self.layout1.addRow(self.delay_label, self.delay)
         self.layout1.addRow(self.cam_delay, self.cam_delay_label)
+        
+        self.sub_widget1b = QWidget(self.central_widget)
+        self.layout1b = QHBoxLayout(self.sub_widget1b)
+        self.layout1b.addWidget(self.stim_position_label)
+        self.layout1b.addWidget(self.stim_position)
+        self.layout1b.addWidget(self.stim_duration_label)
+        self.layout1b.addWidget(self.stim_duration)
+        self.layout1b.addWidget(self.stim_frequency_label)
+        self.layout1b.addWidget(self.stim_frequency)
+        self.layout1b.addWidget(self.stim_amplitude_label)
+        self.layout1b.addWidget(self.stim_amplitude)
         
         self.sub_widget2 = QWidget(self.central_widget)
         self.layout2 = QHBoxLayout(self.sub_widget2)
         self.layout2.addWidget(self.StartButton)
         self.layout2.addWidget(self.CalibrateBtn)
+        self.layout2.addWidget(self.CalibrateLed)
         self.layout2.addWidget(self.LiveButton)
         self.layout2.addWidget(self.ShutterButton)
         self.layout2.addWidget(self.ClearCalibrationButton)
@@ -442,6 +505,8 @@ class StartWindow(QMainWindow):
         self.layout5.addWidget(self.exp_time)
         self.layout5.addWidget(self.StackButton)
         self.layout5.addWidget(self.PsfStackButton)
+        self.layout5.addWidget(self.step_size)
+        self.layout5.addWidget(self.step_size_label)
         
         self.sub_widget6 = QWidget(self.central_widget)
         self.layout6 = QHBoxLayout(self.sub_widget6)
@@ -467,7 +532,9 @@ class StartWindow(QMainWindow):
         self.tab1 = QWidget(self.central_widget)
         self.layout0 = QVBoxLayout(self.tab1)
         self.layout0.addWidget(self.sub_widget1)
-        self.layout0.addWidget(self.plot)
+        self.layout0.addWidget(self.stim_label)
+        self.layout0.addWidget(self.sub_widget1b)
+        self.layout0.addWidget(self.glw)
         self.layout0.addWidget(self.sub_widget2)
         self.layout0.addWidget(self.sub_widget3)
         self.layout0.addWidget(self.sub_widget4)
@@ -510,7 +577,8 @@ class StartWindow(QMainWindow):
       self.CalibrationStackButton.clicked.connect(self.calibration_stack_clicked)
       self.StartChirpButton.clicked.connect(self.start_chirp_clicked)
       self.CalibrateLsButton.clicked.connect(self.calibrate_lightsheet_clicked)
-      self.ManualCalibrationValuesButton.clicked.connect(self.manual_calibration_values_clicked)
+      self.ManualCalibrationValuesButton.clicked.connect(lambda: \
+                                                         self.manual_calibration_values_clicked(self.ls_scale.value(), self.ls_intercept.value()))
       
       self.ls_position_slider.valueChanged.connect(lambda x: self.ls_position.setValue(x/1000))
       self.ls_position.valueChanged.connect(lambda x: self.ls_position_slider.setValue(x*1000))
@@ -527,28 +595,84 @@ class StartWindow(QMainWindow):
       self.combi_position.setEnabled(False)
       self.combi_position_slider.setEnabled(False)
       
-class AutoFocusWindow(QMainWindow):
+class AutoFocusWindow(QWidget):
+    applyClicked = pyqtSignal(list)
+    
     def __init__(self):
         super().__init__()
         self.generate_layout()
         self.connect_signals()
         
     def generate_layout(self):
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
+        # self.central_widget = QWidget()
+        # self.setCentralWidget(self.central_widget)
         
-        self.slope = QDoubleSpinBox(self.central_widget)
+        # self.slope = QDoubleSpinBox(self.central_widget)
+        self.slope = QDoubleSpinBox()
         self.slope_label = QLabel('Slope')
-        self.intercept = QDoubleSpinBox(self.central_widget)
+        # self.intercept = QDoubleSpinBox(self.central_widget)
+        self.intercept = QDoubleSpinBox()
         self.intercept_label = QLabel('Intercept')
         
         self.applyButton = QPushButton('Apply')
+        self.autofocusButton = QPushButton('run autofocus')
+        self.imagePathButton = QPushButton('image path')
+        self.csvPathButton = QPushButton('csv path')
+        self.imagePath = QLineEdit('image path')
+        self.csvPath = QLineEdit('csv path')
         
-        self.sub_widget1 = QWidget(self.central_widget)
+        # self.sub_widget1 = QWidget(self.central_widget)
+        self.sub_widget1 = QWidget()
         self.layout1 = QFormLayout(self.sub_widget1)
         self.layout1.addRow(self.slope_label, self.slope)
         self.layout1.addRow(self.intercept_label, self.intercept)
         self.layout1.addRow('apply', self.applyButton)
-    def connect_signals(self):
-        pass
         
+        self.glw = pg.GraphicsLayoutWidget()
+        self.plt = self.glw.addPlot()
+        
+        self.sub_widget2 = QWidget()
+        self.layout2 = QHBoxLayout(self.sub_widget2)
+        self.layout2.addWidget(self.imagePath)
+        self.layout2.addWidget(self.imagePathButton)
+        
+        self.sub_widget3 = QWidget()
+        self.layout3 = QHBoxLayout(self.sub_widget3)
+        self.layout3.addWidget(self.csvPath)
+        self.layout3.addWidget(self.csvPathButton)
+        
+        self.layout0 = QVBoxLayout(self)
+        self.layout0.addWidget(self.sub_widget1)
+        self.layout0.addWidget(self.sub_widget2)
+        self.layout0.addWidget(self.sub_widget3)
+        self.layout0.addWidget(self.autofocusButton)
+        self.layout0.addWidget(self.glw)
+        
+        # self.setLayout(self.layout0)
+    def connect_signals(self):
+        self.applyButton.clicked.connect(self.apply)
+        self.imagePathButton.clicked.connect(self.select_path_clicked)
+        self.csvPathButton.clicked.connect(self.select_path_clicked)
+        self.autofocusButton.clicked.connect(self.run_autofocus)
+        
+    def apply(self):
+        self.applyClicked.emit([self.slope.value(), self.intercept.value()])
+        
+    def select_path_clicked(self):
+        snd = self.sender()
+        nm = snd.text()
+        file = str(QFileDialog.getOpenFileName(self, "Select Directory")[0])
+        if 'image' in nm:
+            self.imagePath.setText(file)
+        elif 'csv' in nm:
+            self.csvPath.setText(file)
+        
+    def run_autofocus(self):
+        self.af = Autofocus()
+        self.af.load_data(self.imagePath.text(), self.csvPath.text())
+        self.af.run_af()
+        self.slope.setValue(self.af.measured_slope)
+        self.intercept.setValue(self.af.measured_intercept)
+        self.plt.clear()
+        self.plt.plot(self.af.vc_values, self.af.ls_values, pen=None, symbol='o')
+        self.plt.plot(self.af.vc_values, self.af.vc_values*self.af.measured_slope + self.af.measured_intercept)

@@ -28,7 +28,7 @@ class Daq(QObject):
         self.adata = np.zeros((self.n_samples,2))
         self.ddata = np.full((self.n_samples,1), False)
         self.aintask.ai_channels.add_ai_voltage_chan(self.daq_name + "ai0:1")
-        self.aouttask.ao_channels.add_ao_voltage_chan(self.daq_name + "ao0:1", max_val=10, min_val=-10)
+        self.aouttask.ao_channels.add_ao_voltage_chan(self.daq_name + "ao0:2", max_val=10, min_val=-10)
         self.dintask.di_channels.add_di_chan(self.daq_name + "port0/line1")
         self.douttask.do_channels.add_do_chan(self.daq_name + 'port0/line0')
         self.aintask.timing.cfg_samp_clk_timing(self.sample_freq, source="", active_edge=Edge.RISING,
@@ -62,6 +62,42 @@ class Daq(QObject):
         self.aouttask.write(awaveform)
         self.douttask.write(dwaveform)
         
+    def fast_aquisition_camera_follower(self, awaveform, dwaveform):
+        self.n_samples = np.shape(awaveform)[1]
+        self.duration = self.n_samples / self.sample_freq
+        with nidaqmx.Task() as aouttask, nidaqmx.Task() as aintask, \
+        nidaqmx.Task() as dintask, nidaqmx.Task() as douttask:
+            
+            aintask.ai_channels.add_ai_voltage_chan(self.daq_name + "ai0:1")
+            aouttask.ao_channels.add_ao_voltage_chan(self.daq_name + "ao0:2", max_val=10, min_val=-10)
+            dintask.di_channels.add_di_chan(self.daq_name + "port0/line0")
+            douttask.do_channels.add_do_chan(self.daq_name + 'port0/line1')
+            douttask.do_channels.add_do_chan(self.daq_name + 'port0/line7')
+            
+            alltasks = [aintask, aouttask, douttask, dintask]  
+            for task in alltasks:
+                task.timing.cfg_samp_clk_timing(self.sample_freq,
+                source="",
+                active_edge=Edge.RISING,
+                sample_mode=AcquisitionType.FINITE,
+                samps_per_chan=self.n_samples)
+           
+            for task in alltasks[1:]:
+                task.triggers.start_trigger.cfg_dig_edge_start_trig(
+                    trigger_source='/Dev1/ai/StartTrigger')
+            
+            aouttask.write(awaveform)
+            douttask.write(dwaveform)
+            
+            aouttask.start()
+            douttask.start()
+            dintask.start()
+            aintask.start()
+            self.adata = np.asarray(aintask.read(self.n_samples, 
+                                                    timeout=self.duration + 10))
+            self.ddata = np.asarray(dintask.read(self.n_samples,
+                                                      timeout=self.duration + 10))
+        
     def fast_aquisition_camera_leader(self, awaveform, wf_freq):
         self.n_samples = np.shape(awaveform)[1]
         self.duration = self.n_samples / self.sample_freq
@@ -74,18 +110,26 @@ class Daq(QObject):
             countertask.triggers.start_trigger.cfg_dig_edge_start_trig(trigger_source="/Dev1/PFI1")
             countertask.triggers.start_trigger.retriggerable = True
                 
+                
             outtask.ao_channels.add_ao_voltage_chan(self.daq_name + "ao0:1", max_val=10, min_val=-10)
             outtask.timing.cfg_samp_clk_timing(
-            self.sample_freq,
-            source="/Dev1/Ctr0InternalOutput",
-            active_edge=Edge.RISING,
-            sample_mode=AcquisitionType.FINITE, samps_per_chan=self.n_samples)
-			
-			shutterTask.do_channels.add_do_chan(self.daq_name + 'port1/line0'):
+                self.sample_freq,
+                source="/Dev1/Ctr0InternalOutput",
+                active_edge=Edge.RISING,
+                sample_mode=AcquisitionType.FINITE,
+                samps_per_chan=self.n_samples)
+            outtask.triggers.start_trigger.cfg_dig_edge_start_trig(trigger_source="/Dev1/PFI1")
+            
+            shutterTask.do_channels.add_do_chan(self.daq_name + 'port0/line7')
+            shutterTask.timing.cfg_samp_clk_timing(self.sample_freq, source="/Dev1/Ctr0InternalOutput",
+                                              active_edge=Edge.RISING,
+                                               sample_mode=AcquisitionType.FINITE,
+                                               samps_per_chan=self.n_samples)
+            
             shutterTask.triggers.start_trigger.cfg_dig_edge_start_trig(trigger_source="/Dev1/PFI1")
-			
+            
             aintask.ai_channels.add_ai_voltage_chan(self.daq_name + "ai0:1")
-            aintask.timing.cfg_samp_clk_timing(self.sample_freq, source="",
+            aintask.timing.cfg_samp_clk_timing(self.sample_freq, source="/Dev1/Ctr0InternalOutput",
                                               active_edge=Edge.RISING,
                                                sample_mode=AcquisitionType.FINITE,
                                                samps_per_chan=self.n_samples)
@@ -93,27 +137,26 @@ class Daq(QObject):
 
             
             dintask.di_channels.add_di_chan(self.daq_name + "port0/line1")
-            dintask.timing.cfg_samp_clk_timing(self.sample_freq, source="",
+            dintask.timing.cfg_samp_clk_timing(self.sample_freq, source="/Dev1/Ctr0InternalOutput",
                                                     active_edge=Edge.RISING,
                                                     sample_mode=AcquisitionType.FINITE,
                                                     samps_per_chan=self.n_samples)
             dintask.triggers.start_trigger.cfg_dig_edge_start_trig(trigger_source="/Dev1/PFI1")
             
-        
+            shutterwave = np.full(self.n_samples, True)
+            shutterwave[-1] = False
             outtask.write(awaveform)
-			shutterTask.write(True)
-            shutterTask.start()
-            self.isOnShutter = True
+            shutterTask.write(shutterwave)
             outtask.start()
+            shutterTask.start()
             aintask.start()
             dintask.start()
-            countertask.start()self.shutter()
+            countertask.start()
             self.adata = np.asarray(aintask.read(self.n_samples, 
                                                     timeout=self.duration + 10))
             self.ddata = np.asarray(dintask.read(self.n_samples,
                                                       timeout=self.duration + 10))
-													  
-		self.shutter()
+        
             
     def start_aquisition(self):
         # self.outtask.start()
@@ -185,7 +228,7 @@ class Daq(QObject):
         
     def shutter(self):
         with nidaqmx.Task() as shutterTask:
-            shutterTask.do_channels.add_do_chan(self.daq_name + 'port1/line0')
+            shutterTask.do_channels.add_do_chan(self.daq_name + 'port0/line8')
             if not self.isOnShutter:
                 shutterTask.write(True)
                 shutterTask.start()
@@ -198,7 +241,7 @@ class Daq(QObject):
     def acquire_stack(self, awf, dwf):
         with nidaqmx.Task() as aouttask, nidaqmx.Task() as douttask:
             aouttask.ao_channels.add_ao_voltage_chan(self.daq_name + "ao0:1", max_val=10, min_val=-10)
-            douttask.do_channels.add_do_chan(self.daq_name + 'port0/line0')
+            douttask.do_channels.add_do_chan(self.daq_name + 'port0/line1')
             
             aouttask.timing.cfg_samp_clk_timing(
                 self.sample_freq,
@@ -223,4 +266,28 @@ class Daq(QObject):
             aouttask.start()   
             
             aouttask.wait_until_done(np.shape(awf)[1]/self.sample_freq + 2)
-                    
+        
+    def acquire_linear_calibration(self, awf):
+        with nidaqmx.Task() as aouttask, nidaqmx.Task() as aintask:
+            aouttask.ao_channels.add_ao_voltage_chan(self.daq_name + "ao0:1", max_val=10, min_val=-10)
+            aintask.ai_channels.add_ai_voltage_chan(self.daq_name + "ai0:1")
+            aintask.timing.cfg_samp_clk_timing(self.sample_freq, source="", active_edge=Edge.RISING,
+                                                   sample_mode=AcquisitionType.FINITE,
+                                                   samps_per_chan=np.shape(awf)[1])
+            aouttask.timing.cfg_samp_clk_timing(
+                self.sample_freq,
+                source="",
+                active_edge=Edge.RISING,
+                sample_mode=AcquisitionType.FINITE,
+                samps_per_chan=awf.shape[1])
+            
+            aouttask.triggers.start_trigger.cfg_dig_edge_start_trig(trigger_source='/Dev1/ai/StartTrigger')
+            
+            aouttask.write(awf)
+            
+            aouttask.start()   
+            adata = np.asarray(aintask.read(np.shape(awf)[1], 
+                                                    timeout=np.shape(awf)[1]/self.sample_freq + 2))
+            aouttask.wait_until_done(np.shape(awf)[1]/self.sample_freq + 2)
+        
+        return adata
