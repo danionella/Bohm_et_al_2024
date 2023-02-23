@@ -201,6 +201,18 @@ class Waveforms:
         
         return awf, dwf
     
+    def multi_freq_sawtooth(self, start_freq, end_freq, n_cycles, n_steps, amp, offset):
+        freqs = np.linspace(start_freq, end_freq, n_steps)
+        awf = np.zeros([1, int(np.ceil(np.sum(n_cycles*self.sample_freq/freqs)))])
+        pos = 0
+        for n, f in enumerate(freqs):
+            t = np.linspace(1/self.sample_freq, n_cycles/f, int(self.sample_freq*n_cycles/f))
+            a = signal.sawtooth(f*t*(2*np.pi),0.5)*amp
+            awf[0,pos:pos+a.shape[0]] = a
+            pos = pos + a.shape[0]
+        awf = awf + offset    
+        return awf
+    
     def ramp(self):
         awf = np.linspace(-3, 3, 10000)
         awf = np.hstack((np.ones(1000)*-3, awf))
@@ -225,7 +237,8 @@ if __name__=="__main__":
                     0.09126277240684635,
                     2.029975214187555e-06)
     # ta, td = wf.stack(-0.132,0.07,70,50.0)
-    ta, td = wf.psf_stack(-0.122,0.442,10,50.0, 0.0044)
+    # ta, td = wf.psf_stack(-0.122,0.442,10,50.0, 0.0044)
+    ta = wf.multi_freq_sawtooth(1, 200, 5, 5, 0.4, 0)
     # ta, td = wf.calibration_stack((-1.9, -1.0), (-1.2, 1.0), 10, 5.0)
     # ta, td = wf.fast_waveform(8, 0, 0, 0.25, 1, 0, 0, True, 0.5, 20, 1000, 1)
     # ta, td = wf.chirp_waveform(1, 500, 0.02, -0.122, 5)

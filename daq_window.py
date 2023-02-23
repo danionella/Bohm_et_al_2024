@@ -316,7 +316,24 @@ class StartWindow(QMainWindow):
             self.daq.stop_aquisition()
         
         self.plotData()
+        
+    def debug_button_clicked(self):
+        awf = self.wf.multi_freq_sawtooth(1, 200, 5, 5, 0.4, -0.7)
+        awf = np.vstack((awf, np.zeros(awf.shape)))
+        
+        lindata = self.daq.acquire_linear_calibration(awf)
+        
+        time = np.linspace(1/self.daq.sample_freq,
+                           len(awf[0,:])/self.daq.sample_freq,
+                           len(awf[0,:]))
 
+        self.plot.plot(time, awf[0,:], pen='y')
+        self.plot.plot(time, awf[1,:], pen='m')
+        
+        saveData = np.vstack((time, lindata[0,:], lindata[1,:], awf[0,:], awf[1,:]))
+        saveData = np.transpose(saveData)
+        self.save_data(saveData)
+        
     def manual_calibration_values_clicked(self, ls_scale, ls_intercept):
         self.wf.ls_scale = ls_scale
         self.ls_scale.setValue(ls_scale)
@@ -344,6 +361,7 @@ class StartWindow(QMainWindow):
         self.StartChirpButton = QPushButton('start chirp', self.central_widget)
         self.CalibrateLsButton = QPushButton('Calibrate Lightsheet', self.central_widget)
         self.ManualCalibrationValuesButton = QPushButton('use manual values', self.central_widget)
+        self.DebugButton = QPushButton('Debug', self.central_widget)
         
         # sliders
         self.ls_position_slider = QSlider(orientation=Qt.Horizontal, minimum=-10000,
@@ -528,6 +546,7 @@ class StartWindow(QMainWindow):
         self.layout8.addWidget(self.end_freq_label)
         self.layout8.addWidget(self.end_freq)
         self.layout8.addWidget(self.StartChirpButton)
+        self.layout8.addWidget(self.DebugButton)
         
         self.tab1 = QWidget(self.central_widget)
         self.layout0 = QVBoxLayout(self.tab1)
@@ -576,6 +595,7 @@ class StartWindow(QMainWindow):
       self.GetPos2Button.clicked.connect(self.get_pos2_clicked)
       self.CalibrationStackButton.clicked.connect(self.calibration_stack_clicked)
       self.StartChirpButton.clicked.connect(self.start_chirp_clicked)
+      self.DebugButton.clicked.connect(self.debug_button_clicked)
       self.CalibrateLsButton.clicked.connect(self.calibrate_lightsheet_clicked)
       self.ManualCalibrationValuesButton.clicked.connect(lambda: \
                                                          self.manual_calibration_values_clicked(self.ls_scale.value(), self.ls_intercept.value()))
@@ -594,6 +614,7 @@ class StartWindow(QMainWindow):
       self.combi_position_slider_label.setCheckState(False)
       self.combi_position.setEnabled(False)
       self.combi_position_slider.setEnabled(False)
+      
       
 class AutoFocusWindow(QWidget):
     applyClicked = pyqtSignal(list)
@@ -676,3 +697,6 @@ class AutoFocusWindow(QWidget):
         self.plt.clear()
         self.plt.plot(self.af.vc_values, self.af.ls_values, pen=None, symbol='o')
         self.plt.plot(self.af.vc_values, self.af.vc_values*self.af.measured_slope + self.af.measured_intercept)
+        
+if __name__=="__main__":
+    pass
