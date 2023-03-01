@@ -90,7 +90,29 @@ class Waveforms:
         self.kernel_vc = (np.conj(fs_vc)*fr_vc)/(np.conj(fs_vc)*fs_vc+.0001)
         self.kernel_ls = (np.conj(fs_ls)*fr_ls)/(np.conj(fs_ls)*fs_ls+.0001)
         
-    
+    def beat_waveform(self, freq, vc_amp, vc_pos, exp_time, duration, phase, cam_phase, st,
+                      stim_pos, stim_duration, stim_freq, stim_amp):
+        awf, dwf = self.fast_waveform(freq, vc_amp, vc_pos, exp_time,
+                                      duration, phase, cam_phase, st,
+                                      stim_pos, stim_duration, stim_freq, stim_amp)
+        # vc_amp = vc_amp/2    
+        n_samples = int(duration * self.sample_freq)
+        # time1 = np.linspace(1/self.sample_freq, duration, n_samples) + phase*(1/self.sample_freq)
+        # wf_freq = 2/duration # two times faster that the duration of the entire recording
+        # wf_saw = signal.sawtooth(wf_freq*time1*(2*np.pi),0.5)*vc_amp + vc_pos
+        # wf_ls = wf_saw*self.ls_scale + self.ls_intercept
+        
+        
+        # 1 sample phase shift hack for 500 Hz volumes and 50000 sample rate
+        
+        wf_ls = np.zeros(np.shape(awf[1,:]))
+        for n, idx in enumerate(np.arange(0,n_samples, 100)):
+            wf_ls[idx:idx+100] = awf[1,idx-n:idx-n+100]
+        
+        awf[1,:] = wf_ls
+        
+        return awf, dwf
+        
     def stack(self, mid_pos, size, n_steps, exp_time):
         exp_time = exp_time/1000;
         buffer_samples = 0.05 * self.sample_freq;

@@ -274,6 +274,16 @@ class StartWindow(QMainWindow):
         self.wf.kernel_vc = None
         self.CalibrateLed.value = False
         
+    def beat_calibration_clicked(self):
+        self.awf, self.dwf = self.wf.beat_waveform(self.scan_freq.value(), self.stack_size.value(),
+                                         self.vc_position.value(), self.exp_time.value()/1000,
+                                         self.duration_input.value(), self.delay.value(),
+                                         self.cam_delay.value(), self.stBox.checkState(),
+                                         self.stim_position.value(), self.stim_duration.value(),
+                                         self.stim_frequency.value(), self.stim_amplitude.value())
+        self.daq.fast_aquisition_camera_follower(self.awf, self.dwf)
+        self.plotData()
+        
     def pulse_response_clicked(self):
         self.awf = self.wf.pulses(10, 1, 0.2, self.vc_position.value())
         self.dwf = np.full(self.awf.shape[1], False)
@@ -362,6 +372,7 @@ class StartWindow(QMainWindow):
         self.CalibrateLsButton = QPushButton('Calibrate Lightsheet', self.central_widget)
         self.ManualCalibrationValuesButton = QPushButton('use manual values', self.central_widget)
         self.DebugButton = QPushButton('Debug', self.central_widget)
+        self.BeatCalibrationButton = QPushButton('Beat Calibration', self.central_widget)
         
         # sliders
         self.ls_position_slider = QSlider(orientation=Qt.Horizontal, minimum=-10000,
@@ -494,6 +505,7 @@ class StartWindow(QMainWindow):
         self.layout2.addWidget(self.LiveButton)
         self.layout2.addWidget(self.ShutterButton)
         self.layout2.addWidget(self.ClearCalibrationButton)
+        self.layout2.addWidget(self.BeatCalibrationButton)
         
         self.sub_widget3 = QWidget(self.central_widget)
         self.layout3 = QGridLayout(self.sub_widget3)
@@ -591,6 +603,7 @@ class StartWindow(QMainWindow):
       # self.PulseResponse.clicked.connect(self.pulse_response_clicked)
       self.DataPathButton.clicked.connect(self.select_path_clicked)
       self.ClearCalibrationButton.clicked.connect(self.clear_calibration_clicked)
+      self.BeatCalibrationButton.clicked.connect(self.beat_calibration_clicked)
       self.GetPos1Button.clicked.connect(self.get_pos1_clicked)
       self.GetPos2Button.clicked.connect(self.get_pos2_clicked)
       self.CalibrationStackButton.clicked.connect(self.calibration_stack_clicked)
