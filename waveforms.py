@@ -15,6 +15,8 @@ class Waveforms:
         self.ls_lin_intercept = 0
         self.vc_lin_slope = 1
         self.vc_lin_intercept = 0
+        self.ls_out_scale = 1
+        self.ls_out_intercept = 1
     
     def fast_waveform(self, freq, vc_amp, vc_pos, exp_time, duration, phase, cam_phase, st,
                       stim_pos, stim_duration, stim_freq, stim_amp):
@@ -23,28 +25,39 @@ class Waveforms:
         vc_amp = vc_amp/2    
         n_samples = int(duration * self.sample_freq)
         time1 = np.linspace(1/self.sample_freq, duration, n_samples) + phase*(1/self.sample_freq)
-        time2 = np.linspace(1/self.sample_freq, duration, n_samples) + phase*(1/self.sample_freq)
+        time2 = np.linspace(1/self.sample_freq, duration, n_samples)
         if st:
             wf_saw = signal.sawtooth(wf_freq*time1*(2*np.pi),0.5)*vc_amp + vc_pos
             sos = signal.butter(2, 2000/(self.sample_freq/2), btype='low', output='sos')
             wf_saw = signal.sosfiltfilt(sos, wf_saw)
-            wf_saw = wf_saw.copy(order='C')
-            wf_sin_vc = wf_saw
-            wf_sin_ls = wf_saw*self.ls_scale + self.ls_intercept
+            wf_sin_vc = wf_saw.copy(order='C')
+            wf_saw = signal.sawtooth(wf_freq*time2*(2*np.pi),0.5)*vc_amp + vc_pos
+            sos = signal.butter(2, 2000/(self.sample_freq/2), btype='low', output='sos')
+            wf_saw = signal.sosfiltfilt(sos, wf_saw)
+            wf_sin_ls = wf_saw.copy(order='C')
+            # wf_sin_ls = wf_saw*self.ls_scale + self.ls_intercept
         else:
             wf_sin_vc = np.sin(wf_freq*time1*(2*np.pi))*vc_amp + vc_pos
             wf_sin_ls = np.sin(wf_freq*time2*(2*np.pi))*vc_amp + vc_pos
-            wf_sin_ls = wf_sin_ls*self.ls_scale + self.ls_intercept
+            # wf_sin_ls = wf_sin_ls*self.ls_scale + self.ls_intercept
         
-        if self.kernel_vc is not None:
-            fs = np.fft.fft(wf_sin_vc)
-            k = self.kernel_vc
-            dcfs = (np.conj(k)*fs)/(np.conj(k)*k+.0001)
-            wf_sin_vc = np.real(np.fft.ifft(dcfs))
-            fs = np.fft.fft(wf_sin_ls)
+        if self.kernel_vc is not None and self.kernel_ls is not None:
+            # fs = np.fft.fft(wf_sin_vc)
+            # k = self.kernel_vc
+            # dcfs = (np.conj(k)*fs)/(np.conj(k)*k+.0001)
+            # wf_sin_vc = np.real(np.fft.ifft(dcfs))
+            fs_vc = np.fft.fft(wf_sin_vc)
+            fr_vc = fs_vc*self.kernel_vc
+            
+            response_vc = np.real(np.fft.ifft(fr_vc))
+            response_ls = response_vc*self.ls_out_scale + self.ls_out_intercept
+            
+            fs = np.fft.fft(response_ls)
             k = self.kernel_ls
             dcfs = (np.conj(k)*fs)/(np.conj(k)*k+.0001)
             wf_sin_ls = np.real(np.fft.ifft(dcfs))
+        else:
+            wf_sin_ls = wf_saw*self.ls_scale + self.ls_intercept
         
         self.check_limits(wf_sin_vc)
         # dwf = np.full((n_samples,), False)     
@@ -70,10 +83,12 @@ class Waveforms:
     
     def calibrate_fft(self, awf, data, linawf, lindata):
         slope_ls, intercept_ls = np.polyfit(linawf[1,1000:-1], lindata[1,1000:-1], 1)
-        ls_data = (data[1,:] - intercept_ls) / slope_ls
+        # ls_data = (data[1,:] - intercept_ls) / slope_ls
+        ls_data = data[1,:]
         print('ls lin slope is: ' + str(slope_ls) + ', ls intercept is: ' + str(intercept_ls))
         slope_vc, intercept_vc = np.polyfit(linawf[0,1000:-1], lindata[0,1000:-1], 1)
-        vc_data = (data[0,:] - intercept_vc) / slope_vc
+        # vc_data = (data[0,:] - intercept_vc) / slope_vc
+        vc_data = data[0,:]
         print('vc lin slope is: ' + str(slope_vc) + ', vc intercept is: ' + str(intercept_vc))
         
         self.ls_lin_slope = slope_ls
@@ -95,19 +110,19 @@ class Waveforms:
         awf, dwf = self.fast_waveform(freq, vc_amp, vc_pos, exp_time,
                                       duration, phase, cam_phase, st,
                                       stim_pos, stim_duration, stim_freq, stim_amp)
-        # vc_amp = vc_amp/2    
+        vc_amp = vc_amp/2    
         n_samples = int(duration * self.sample_freq)
-        # time1 = np.linspace(1/self.sample_freq, duration, n_samples) + phase*(1/self.sample_freq)
-        # wf_freq = 2/duration # two times faster that the duration of the entire recording
-        # wf_saw = signal.sawtooth(wf_freq*time1*(2*np.pi),0.5)*vc_amp + vc_pos
-        # wf_ls = wf_saw*self.ls_scale + self.ls_intercept
+        time1 = np.linspace(1/self.sample_freq, duration, n_samples) + phase*(1/self.sample_freq)
+        wf_freq = 2/duration # two times faster that the duration of the entire recording
+        wf_saw = signal.sawtooth(wf_freq*time1*(2*np.pi),0.5)*vc_amp + vc_pos
+        wf_ls = wf_saw*self.ls_scale + self.ls_intercept
         
         
         # 1 sample phase shift hack for 500 Hz volumes and 50000 sample rate
         
-        wf_ls = np.zeros(np.shape(awf[1,:]))
-        for n, idx in enumerate(np.arange(0,n_samples, 100)):
-            wf_ls[idx:idx+100] = awf[1,idx-n:idx-n+100]
+        # wf_ls = np.zeros(np.shape(awf[1,:]))
+        # for n, idx in enumerate(np.arange(0,n_samples, 100)):
+        #     wf_ls[idx:idx+100] = awf[1,idx-n:idx-n+100]
         
         awf[1,:] = wf_ls
         

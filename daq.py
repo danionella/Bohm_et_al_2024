@@ -239,9 +239,10 @@ class Daq(QObject):
                 self.isOnShutter = False
                 
     def acquire_stack(self, awf, dwf):
-        with nidaqmx.Task() as aouttask, nidaqmx.Task() as douttask:
+        with nidaqmx.Task() as aouttask, nidaqmx.Task() as douttask, nidaqmx.Task() as aintask:
             aouttask.ao_channels.add_ao_voltage_chan(self.daq_name + "ao0:1", max_val=10, min_val=-10)
             douttask.do_channels.add_do_chan(self.daq_name + 'port0/line1')
+            aintask.ai_channels.add_ai_voltage_chan(self.daq_name + "ai0:1")
             
             aouttask.timing.cfg_samp_clk_timing(
                 self.sample_freq,
@@ -257,15 +258,27 @@ class Daq(QObject):
                 sample_mode=AcquisitionType.FINITE,
                 samps_per_chan=dwf.shape[0])
             
+            aintask.timing.cfg_samp_clk_timing(
+                self.sample_freq,
+                source="",
+                active_edge=Edge.RISING,
+                sample_mode=AcquisitionType.FINITE,
+                samps_per_chan=awf.shape[1])
+            
+            
             douttask.triggers.start_trigger.cfg_dig_edge_start_trig(trigger_source='/Dev1/ao/StartTrigger')
+            aintask.triggers.start_trigger.cfg_dig_edge_start_trig(trigger_source='/Dev1/ao/StartTrigger')
             
             aouttask.write(awf)
             douttask.write(dwf)
 
             douttask.start()
+            aintask.start()
             aouttask.start()   
-            
+            adata = np.asarray(aintask.read(awf.shape[1], 
+                                                    timeout=np.shape(awf)[1]/self.sample_freq + 2))
             aouttask.wait_until_done(np.shape(awf)[1]/self.sample_freq + 2)
+            return adata
         
     def acquire_linear_calibration(self, awf):
         with nidaqmx.Task() as aouttask, nidaqmx.Task() as aintask:

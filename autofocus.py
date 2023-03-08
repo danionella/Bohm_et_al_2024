@@ -13,6 +13,9 @@ class Autofocus:
         self.csvdat = None
         self.measured_slope = 0.
         self.measured_intercept = 0.
+        self.measured_slope_out = 0.
+        self.measured_intercept_out = 0.
+        
 
     def cupy_fft_transform_warp_polar(self,image):
         
@@ -137,38 +140,62 @@ class Autofocus:
     
     def run_af(self):
         n_steps = int(self.image.shape[0]/31)
+        if np.shape(self.csvdat)[1] == 3:
+            self.csvdat = np.hstack((self.csvdat, self.csvdat[:,1:]))
+            
         dv = np.diff(self.csvdat[:,2])
         idx = np.nonzero(dv)
         idx = idx[0] + 1
         idx = np.append(0, idx)
-        vals_ls = self.csvdat[idx,2]
+        vals_ls = np.zeros(np.shape(idx))
+        vals_ls_in = np.zeros(np.shape(idx))
+        for i, val in enumerate(idx):
+            vals_ls[i] = np.mean(self.csvdat[val+500:val+600,4])
+            vals_ls_in[i] = np.mean(self.csvdat[val+500:val+600,2])
+        
+        # vals_ls = self.csvdat[idx,id2]
         vals_ls = np.reshape(vals_ls, (int(len(vals_ls)/31), 31))
         vals_ls = vals_ls.T
+        vals_ls_in = np.reshape(vals_ls_in, (int(len(vals_ls_in)/31), 31))
+        vals_ls_in = vals_ls_in.T
+        
         dv = np.diff(self.csvdat[:,1])
         idx = np.nonzero(dv)
         idx = idx[0] + 1
         idx = np.append(0, idx)
-        vals_vc = self.csvdat[idx,1]
+        vals_vc = np.zeros(np.shape(idx))
+        vals_vc_in = np.zeros(np.shape(idx))
+        for i, val in enumerate(idx):
+            vals_vc[i] = np.mean(self.csvdat[val+500:val+600,3])
+            vals_vc_in[i] = np.mean(self.csvdat[val+500:val+600,1])
+        # vals_vc = self.csvdat[idx,id1]
         best_ls = np.zeros(n_steps,)
+        best_ls_in = np.zeros(n_steps,)
         for n in range(n_steps):
             substack = self.image[n*31:(n+1)*31,:,:]
             best_plane = self.detect_best_focus(substack)
             
             xAx = vals_ls[:,n]
+            xAx_in = vals_ls_in[:,n]
             best_ls[n] = best_plane*(xAx[-1] - xAx[0])/(len(xAx)-1) + xAx[0]
+            best_ls_in[n] = best_plane*(xAx_in[-1] - xAx_in[0])/(len(xAx_in)-1) + xAx_in[0]
         a, b = np.polyfit(vals_vc, best_ls, 1)
+        a_in, b_in = np.polyfit(vals_vc_in, best_ls_in, 1)
         
-        self.measured_slope = a
-        self.measured_intercept = b
-        self.vc_values = vals_vc
-        self.ls_values = best_ls
-        
+        self.measured_slope = a_in
+        self.measured_intercept = b_in
+        self.vc_values = vals_vc_in
+        self.ls_values = best_ls_in
+        self.measured_slope_out = a
+        self.measured_intercept_out = b
+        self.vc_values_out = vals_vc
+        self.ls_values_out = best_ls
 # debuging    
 if __name__=="__main__":  
     af = Autofocus()
     print('loading data...')
-    imagePath = r"H:\Urs_data\calibration_gc6_2.tif"
-    csvPath = r"H:\Urs_data\data0018.csv"
+    imagePath = r"H:\Urs_data\20230228\rec00001.nrrd"
+    csvPath = r"H:\Urs_data\20230306_new_calibration\data0000.csv"
     af.load_data(imagePath, csvPath)
     print('done')
     af.run_af()

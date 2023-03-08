@@ -97,9 +97,11 @@ class StartWindow(QMainWindow):
         self.plot.plot(time, self.awf[2,:], pen='c')
         self.plot.plot(time, plotData3, pen='b')
         
-        plot2Data1 = (plotData1 - self.wf.vc_lin_intercept)/self.wf.vc_lin_slope
-        plot2Data2 = (plotData2 - self.wf.ls_lin_intercept)/self.wf.ls_lin_slope
-        plot2Data2 = (plot2Data2 - self.wf.ls_intercept)/self.wf.ls_scale
+        # plot2Data1 = (plotData1 - self.wf.vc_lin_intercept)/self.wf.vc_lin_slope
+        # plot2Data2 = (plotData2 - self.wf.ls_lin_intercept)/self.wf.ls_lin_slope
+        # plot2Data2 = (plot2Data2 - self.wf.ls_intercept)/self.wf.ls_scale
+        plot2Data1 = plotData1
+        plot2Data2 = (plotData2 - self.wf.ls_out_intercept)/self.wf.ls_out_scale
         
         self.plot2.clear()
         self.plot2.plot(time, plot2Data1, pen='r')
@@ -219,7 +221,7 @@ class StartWindow(QMainWindow):
     def get_pos2_clicked(self):
         self.pos2 = (self.vc_position.value(),
                      self.ls_position.value())
-        self.GetPos2Button.setText('Pos1:' + str(self.pos2))
+        self.GetPos2Button.setText('Pos2:' + str(self.pos2))
     
     def calibration_stack_clicked(self):
         if self.isLive:
@@ -232,7 +234,7 @@ class StartWindow(QMainWindow):
                             self.step_size.value())
         if not self.daq.isOnShutter:
             self.shutter_clicked()
-        self.daq.acquire_stack(awf, dwf)
+        data = self.daq.acquire_stack(awf, dwf)
         self.shutter_clicked()
         
         self.plot.clear()
@@ -244,14 +246,19 @@ class StartWindow(QMainWindow):
         self.plot.plot(time, awf[0,:], pen='y')
         self.plot.plot(time, awf[1,:], pen='m')
         
-        saveData = np.vstack((time, awf[0,:], awf[1,:]))
+        saveData = np.vstack((time, awf[0,:], awf[1,:], data))
         saveData = np.transpose(saveData)
         self.save_data(saveData)
         
     def calibrate_lightsheet_clicked(self):
         self.autofocuswind = AutoFocusWindow()
-        self.autofocuswind.applyClicked.connect(lambda x: self.manual_calibration_values_clicked(x[0], x[1]))
+        self.autofocuswind.applyClicked.connect(self.on_calibrate_lightsheet_apply)
         self.autofocuswind.show()
+        
+    def on_calibrate_lightsheet_apply(self, values):
+        self.manual_calibration_values_clicked(values[0], values[1])
+        self.wf.ls_out_intercept = values[3]
+        self.wf.ls_out_scale = values[2]
         
     def calibrate_waveform(self):
         # xcorr = signal.correlate(self.daq.adata[0,:]-np.mean(self.daq.adata[0,:]),
@@ -636,6 +643,7 @@ class AutoFocusWindow(QWidget):
         super().__init__()
         self.generate_layout()
         self.connect_signals()
+        self.af = Autofocus()
         
     def generate_layout(self):
         # self.central_widget = QWidget()
@@ -690,7 +698,8 @@ class AutoFocusWindow(QWidget):
         self.autofocusButton.clicked.connect(self.run_autofocus)
         
     def apply(self):
-        self.applyClicked.emit([self.slope.value(), self.intercept.value()])
+        self.applyClicked.emit([self.slope.value(), self.intercept.value(),
+                                self.af.measured_slope_out, self.af.measured_intercept_out])
         
     def select_path_clicked(self):
         snd = self.sender()
@@ -702,7 +711,6 @@ class AutoFocusWindow(QWidget):
             self.csvPath.setText(file)
         
     def run_autofocus(self):
-        self.af = Autofocus()
         self.af.load_data(self.imagePath.text(), self.csvPath.text())
         self.af.run_af()
         self.slope.setValue(self.af.measured_slope)
