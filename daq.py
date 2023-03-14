@@ -72,20 +72,29 @@ class Daq(QObject):
             aouttask.ao_channels.add_ao_voltage_chan(self.daq_name + "ao0:2", max_val=10, min_val=-10)
             dintask.di_channels.add_di_chan(self.daq_name + "port0/line0")
             douttask.do_channels.add_do_chan(self.daq_name + 'port0/line1')
-            douttask.do_channels.add_do_chan(self.daq_name + 'port0/line7')
             
-            alltasks = [aintask, aouttask, douttask, dintask]  
+            alltasks = [aintask, aouttask]  
             for task in alltasks:
                 task.timing.cfg_samp_clk_timing(self.sample_freq,
-                source="",
-                active_edge=Edge.RISING,
-                sample_mode=AcquisitionType.FINITE,
-                samps_per_chan=self.n_samples)
-           
-            for task in alltasks[1:]:
+                    source="",
+                    active_edge=Edge.RISING,
+                    sample_mode=AcquisitionType.FINITE,
+                    samps_per_chan=self.n_samples)
+                
+            aouttask.triggers.start_trigger.cfg_dig_edge_start_trig(
+                trigger_source='/Dev1/ai/StartTrigger')
+                
+            alltasks = [douttask, dintask]  
+            for task in alltasks:
+                task.timing.cfg_samp_clk_timing(1000000,
+                    source="",
+                    active_edge=Edge.RISING,
+                    sample_mode=AcquisitionType.FINITE,
+                    samps_per_chan=len(dwaveform))
+                
                 task.triggers.start_trigger.cfg_dig_edge_start_trig(
                     trigger_source='/Dev1/ai/StartTrigger')
-            
+           
             aouttask.write(awaveform)
             douttask.write(dwaveform)
             
@@ -95,7 +104,7 @@ class Daq(QObject):
             aintask.start()
             self.adata = np.asarray(aintask.read(self.n_samples, 
                                                     timeout=self.duration + 10))
-            self.ddata = np.asarray(dintask.read(self.n_samples,
+            self.ddata = np.asarray(dintask.read(len(dwaveform),
                                                       timeout=self.duration + 10))
         
     def fast_aquisition_camera_leader(self, awaveform, wf_freq):

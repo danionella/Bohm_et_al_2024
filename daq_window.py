@@ -90,12 +90,15 @@ class StartWindow(QMainWindow):
         time = np.linspace(1/self.daq.sample_freq,
                            len(plotData1)/self.daq.sample_freq,
                            len(plotData1))
+        dtime = np.linspace(1/1e6,
+                           len(plotData3)/1e6,
+                           len(plotData3))
         self.plot.plot(time, plotData1, pen='r')
         self.plot.plot(time, plotData2, pen='g')
         self.plot.plot(time, self.awf[0,:], pen='y')
         self.plot.plot(time, self.awf[1,:], pen='m')
         self.plot.plot(time, self.awf[2,:], pen='c')
-        self.plot.plot(time, plotData3, pen='b')
+        self.plot.plot(dtime, plotData3, pen='b')
         
         # plot2Data1 = (plotData1 - self.wf.vc_lin_intercept)/self.wf.vc_lin_slope
         # plot2Data2 = (plotData2 - self.wf.ls_lin_intercept)/self.wf.ls_lin_slope
@@ -108,10 +111,11 @@ class StartWindow(QMainWindow):
         self.plot2.plot(time, plot2Data2, pen='g')
         
         if self.SaveDataChk.checkState():
-            saveData = np.vstack((time, plotData1, plotData2, plotData3,
+            saveData = np.vstack((time, plotData1, plotData2,
                                          self.awf[0,:], self.awf[1,:]))
             saveData = np.transpose(saveData)
-            self.save_data(saveData)
+            dsaveData = np.transpose(np.vstack((dtime, plotData3)))
+            self.save_data(analogData=saveData, digitalData=dsaveData)
         
     def live_plot(self):
         if self.isLiveStart:
@@ -248,7 +252,7 @@ class StartWindow(QMainWindow):
         
         saveData = np.vstack((time, awf[0,:], awf[1,:], data))
         saveData = np.transpose(saveData)
-        self.save_data(saveData)
+        self.save_data(data=saveData)
         
     def calibrate_lightsheet_clicked(self):
         self.autofocuswind = AutoFocusWindow()
@@ -308,16 +312,17 @@ class StartWindow(QMainWindow):
         file = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
         self.DataPath.setText(file)
         
-    def save_data(self, data):
-        files = glob(self.DataPath.text() + '\data*.csv')
+    def save_data(self, **data):
+        files = glob(self.DataPath.text() + '\data*.npz')
         if files :
             matches = re.search('(?<=data)[0-9]+', files[-1])
             new_iter = int(matches[0]) + 1
             iter_str = str(new_iter).zfill(4)
         else:
             iter_str = '0000'
-        complete_path = self.DataPath.text() + '\data' + iter_str +'.csv' 
-        np.savetxt(complete_path, data, delimiter=",")
+        complete_path = self.DataPath.text() + '\data' + iter_str +'.npz' 
+        # np.savetxt(complete_path, data, delimiter=",")
+        np.savez(complete_path, **data)
         
     def start_chirp_clicked(self):
         self.awf, self.dwf = self.wf.chirp_waveform(self.start_freq.value(), self.end_freq.value(),
@@ -349,7 +354,7 @@ class StartWindow(QMainWindow):
         
         saveData = np.vstack((time, lindata[0,:], lindata[1,:], awf[0,:], awf[1,:]))
         saveData = np.transpose(saveData)
-        self.save_data(saveData)
+        self.save_data(data=saveData)
         
     def manual_calibration_values_clicked(self, ls_scale, ls_intercept):
         self.wf.ls_scale = ls_scale

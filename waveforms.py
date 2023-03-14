@@ -57,19 +57,22 @@ class Waveforms:
             dcfs = (np.conj(k)*fs)/(np.conj(k)*k+.0001)
             wf_sin_ls = np.real(np.fft.ifft(dcfs))
         else:
-            wf_sin_ls = wf_saw*self.ls_scale + self.ls_intercept
+            wf_sin_ls = wf_sin_ls*self.ls_scale + self.ls_intercept
         
         self.check_limits(wf_sin_vc)
         # dwf = np.full((n_samples,), False)     
         # dwf[0:10] = True
-        dwf = signal.square(freq*wf_freq*time1*(2*np.pi) + cam_phase*2*np.pi, 0.2)>0
+        dc = (exp_time-8e-6)/exp_time
+        dc = int(dc*1000)/1000
+        time3 = np.linspace(1/1000000, duration, int(duration * 1000000)) + phase*(1/1000000)
+        dwf = signal.square(freq*wf_freq*time3*(2*np.pi) + cam_phase*2*np.pi, dc)>0
         
-        shutterwave = np.full(n_samples, True)
-        shutterwave[-1] = False
+        # shutterwave = np.full(n_samples, True)
+        # shutterwave[-1] = False
         
         stimwf = self.stimulus_waveform(stim_pos, stim_duration, stim_freq, stim_amp, n_samples)
         
-        dwf = np.vstack((dwf, shutterwave))
+        # dwf = np.vstack((dwf, shutterwave))
         
         # wf_saw = signal.sawtooth(wf_freq*time*(2*np.pi), 0.5)*wf_amp
         # b, a = signal.butter(2, 1000/(sample_freq/2), btype='low')
