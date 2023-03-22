@@ -2,6 +2,7 @@ import numpy as np
 from scipy.signal import medfilt
 from scipy.optimize import minimize
 from skimage import io
+import os
 
 import cupy as cp
 import cupyx.scipy.ndimage as ndigpu
@@ -136,7 +137,13 @@ class Autofocus:
     
     def load_data(self,imagepath, csvpath):
         self.image = io.imread(imagepath)
-        self.csvdat = np.loadtxt(csvpath, delimiter=',')
+        ext = os.path.splitext(csvpath)[1]
+        if ext == '.csv':
+            self.csvdat = np.loadtxt(csvpath, delimiter=',')
+        elif ext == '.npz':
+            tmp = np.load(csvpath)
+            self.csvdat = tmp['data']
+            tmp.close()
     
     def run_af(self):
         n_steps = int(self.image.shape[0]/31)
@@ -194,11 +201,12 @@ class Autofocus:
 if __name__=="__main__":  
     af = Autofocus()
     print('loading data...')
-    imagePath = r"H:\Urs_data\20230228\rec00001.nrrd"
-    csvPath = r"H:\Urs_data\20230306_new_calibration\data0000.csv"
+    imagePath = r"H:\Urs_data\20230316_camera_calib_test\calibration.tif"
+    csvPath = r"H:\Urs_data\20230316_camera_calib_test\data0000.npz"
     af.load_data(imagePath, csvPath)
     print('done')
     af.run_af()
-    print('')
+    print('slope out:' + str(af.measured_slope_out))
+    print('intercept out:' + str(af.measured_intercept_out))
     from matplotlib import pyplot as plt
     plt.scatter(af.vc_values, af.ls_values)

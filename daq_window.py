@@ -424,8 +424,8 @@ class StartWindow(QMainWindow):
         self.stim_amplitude = QDoubleSpinBox(self.central_widget, minimum=0, singleStep=0.001, decimals=3)
         self.stim_amplitude_label = QLabel('amplitude (V):')
         
-        self.cam_delay = QDoubleSpinBox(self.central_widget, minimum=0.0, maximum=1.0)
-        self.cam_delay_label = QLabel('cam delay (x 2Pi)')
+        self.cam_delay = QSpinBox(self.central_widget, minimum=0, maximum=1e6)
+        self.cam_delay_label = QLabel('cam delay (in us)')
         
         self.stack_size = QDoubleSpinBox(self.central_widget, singleStep=0.001, decimals=3)
         self.stack_size_label = QLabel('Stack size (V)')
@@ -435,8 +435,8 @@ class StartWindow(QMainWindow):
         self.n_steps_label = QLabel('n steps')
         self.n_steps.setValue(70)
         
-        self.exp_time = QDoubleSpinBox(minimum=0.1, maximum=10000, 
-                                       singleStep=0.1, decimals=2, 
+        self.exp_time = QDoubleSpinBox(minimum=0.001, maximum=10000, 
+                                       singleStep=0.001, decimals=3, 
                                        parent=self.central_widget)
         self.exp_time_label = QLabel('exposure time')
         self.exp_time.setValue(0.25)

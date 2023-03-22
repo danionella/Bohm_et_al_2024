@@ -60,12 +60,18 @@ class Waveforms:
             wf_sin_ls = wf_sin_ls*self.ls_scale + self.ls_intercept
         
         self.check_limits(wf_sin_vc)
+        
+        exp_time_us = int(exp_time*1e6)
+        period = np.full(exp_time_us, True)
+        period[-8:] = False
+        dwf = np.tile(period, int(duration*1e6/exp_time_us))
+        dwf = np.roll(dwf, cam_phase)
         # dwf = np.full((n_samples,), False)     
         # dwf[0:10] = True
-        dc = (exp_time-8e-6)/exp_time
-        dc = int(dc*1000)/1000
-        time3 = np.linspace(1/1000000, duration, int(duration * 1000000)) + phase*(1/1000000)
-        dwf = signal.square(freq*wf_freq*time3*(2*np.pi) + cam_phase*2*np.pi, dc)>0
+        # dc = (exp_time-8e-6)/exp_time
+        # dc = int(dc*1000)/1000
+        # time3 = np.linspace(1/1000000, duration, int(duration * 1000000)) + phase*(1/1000000)
+        # dwf = signal.square(freq*wf_freq*time3*(2*np.pi) + cam_phase*2*np.pi, dc)>0
         
         # shutterwave = np.full(n_samples, True)
         # shutterwave[-1] = False
@@ -98,9 +104,11 @@ class Waveforms:
         self.ls_lin_intercept = intercept_ls
         self.vc_lin_slope = slope_vc
         self.vc_lin_intercept = intercept_vc
-        
+        # manual hack to correct for laggin vc signal at 500 Hz
+        shift = 6
+        bias = 0.0009538558075735791
         fs_vc = np.fft.fft(awf[0,:])
-        fr_vc = np.fft.fft(vc_data)
+        fr_vc = np.fft.fft(np.roll(vc_data, -shift)-bias)
         
         fs_ls = np.fft.fft(awf[1,:])
         fr_ls = np.fft.fft(ls_data)
@@ -117,7 +125,7 @@ class Waveforms:
         n_samples = int(duration * self.sample_freq)
         time1 = np.linspace(1/self.sample_freq, duration, n_samples) + phase*(1/self.sample_freq)
         wf_freq = 2/duration # two times faster that the duration of the entire recording
-        wf_saw = signal.sawtooth(wf_freq*time1*(2*np.pi),0.5)*vc_amp + vc_pos
+        wf_saw = signal.sawtooth(wf_freq*time1*(2*np.pi),0.5)*vc_amp*1.4 + vc_pos
         wf_ls = wf_saw*self.ls_scale + self.ls_intercept
         
         
