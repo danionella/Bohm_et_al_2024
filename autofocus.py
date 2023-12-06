@@ -8,7 +8,8 @@ import cupy as cp
 import cupyx.scipy.ndimage as ndigpu
 
 class Autofocus:
-    
+    """autofocus class. Implements autofocus method from Barbara et al. 2022, frontiers in cell and developmental biology
+    """
     def __init__(self):
         self.image = None
         self.csvdat = None

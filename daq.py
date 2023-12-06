@@ -18,6 +18,12 @@ class Daq(QObject):
         self.isOnShutter = False
     
     def setup_aquisition(self, awaveform, dwaveform):
+        """
+         Setup Aquisition 
+         
+         @param awaveform - numpy array of analog waveform for galvo and voice coil
+         @param dwaveform - numpy array of digital waveform for camera trigger
+        """
         
         self.aintask = nidaqmx.Task()
         self.aouttask = nidaqmx.Task()
@@ -63,6 +69,12 @@ class Daq(QObject):
         self.douttask.write(dwaveform)
         
     def fast_aquisition_camera_follower(self, awaveform, dwaveform):
+        """
+         Fast aquisition with camera triggered by the daq.
+         
+         @param awaveform - numpy array of analog waveform for galvo and voice coil
+         @param dwaveform - numpy array of digital waveform for camera trigger
+        """
         self.n_samples = np.shape(awaveform)[1]
         self.duration = self.n_samples / self.sample_freq
         with nidaqmx.Task() as aouttask, nidaqmx.Task() as aintask, \
@@ -74,6 +86,7 @@ class Daq(QObject):
             douttask.do_channels.add_do_chan(self.daq_name + 'port0/line1')
             
             alltasks = [aintask, aouttask]  
+            # Set up the timing for analog tasks
             for task in alltasks:
                 task.timing.cfg_samp_clk_timing(self.sample_freq,
                     source="",
@@ -85,6 +98,7 @@ class Daq(QObject):
                 trigger_source='/Dev1/ai/StartTrigger')
                 
             alltasks = [douttask, dintask]  
+            # Set up the timing for digital tasks
             for task in alltasks:
                 task.timing.cfg_samp_clk_timing(1000000,
                     source="",
@@ -201,6 +215,9 @@ class Daq(QObject):
     #         sleep(1)
     
     def continous_aq_setup(self):
+        """
+         Setup daq for continous acquisition in live mode.
+        """
         self.liveIntask = nidaqmx.Task()
         self.liveOuttask = nidaqmx.Task()
         self.liveIntask.ai_channels.add_ai_voltage_chan(self.daq_name + "ai0:1")
@@ -219,7 +236,9 @@ class Daq(QObject):
         self.inData = np.zeros([2, 20])
         
     def continous_aq(self, writeData):
-        
+        """
+        called by interrupt to read and write data during live view
+        """        
         # while not self.thread().isInterruptionRequested():
         # try:
             self.reader.read_many_sample(data = self.inData,
@@ -230,14 +249,19 @@ class Daq(QObject):
             
     
     def continous_aq_cleanup(self):
+        """stop and clean up acquisition when exiting live view
+        """
         self.liveIntask.stop()
         self.liveOuttask.stop
         self.liveIntask.close()
         self.liveOuttask.close()
         
     def shutter(self):
+        """toggles the laser shutter
+        """
         with nidaqmx.Task() as shutterTask:
             shutterTask.do_channels.add_do_chan(self.daq_name + 'port0/line8')
+            # This method is called when the user clicks on the shutter button.
             if not self.isOnShutter:
                 shutterTask.write(True)
                 shutterTask.start()
@@ -248,11 +272,19 @@ class Daq(QObject):
                 self.isOnShutter = False
                 
     def acquire_stack(self, awf, dwf):
+        """
+         acquire z-stack
+         
+         @param awf - analog wf controlling galvo and voice coil
+         @param dwf - digital wf triggering camera
+         
+         @return adata - analog position data from galvo and voice coil
+        """
         with nidaqmx.Task() as aouttask, nidaqmx.Task() as douttask, nidaqmx.Task() as aintask:
             aouttask.ao_channels.add_ao_voltage_chan(self.daq_name + "ao0:1", max_val=10, min_val=-10)
             douttask.do_channels.add_do_chan(self.daq_name + 'port0/line1')
             aintask.ai_channels.add_ai_voltage_chan(self.daq_name + "ai0:1")
-            
+            # configure sample clock timing for all tasks
             aouttask.timing.cfg_samp_clk_timing(
                 self.sample_freq,
                 source="",
@@ -274,22 +306,30 @@ class Daq(QObject):
                 sample_mode=AcquisitionType.FINITE,
                 samps_per_chan=awf.shape[1])
             
-            
+            # set start trigger for dout and ain to aout start trigger
             douttask.triggers.start_trigger.cfg_dig_edge_start_trig(trigger_source='/Dev1/ao/StartTrigger')
             aintask.triggers.start_trigger.cfg_dig_edge_start_trig(trigger_source='/Dev1/ao/StartTrigger')
-            
+            #write waveforms
             aouttask.write(awf)
             douttask.write(dwf)
-
+            #start tasks
             douttask.start()
             aintask.start()
-            aouttask.start()   
+            aouttask.start() 
+            # read data  
             adata = np.asarray(aintask.read(awf.shape[1], 
                                                     timeout=np.shape(awf)[1]/self.sample_freq + 2))
             aouttask.wait_until_done(np.shape(awf)[1]/self.sample_freq + 2)
             return adata
         
     def acquire_linear_calibration(self, awf):
+        """
+         use to acquire calibration data to map galvo and voice coil input to position output
+         
+         @param awf - analog waveform 
+         
+         @return adata - analog position data of galvo and voice coil
+        """
         with nidaqmx.Task() as aouttask, nidaqmx.Task() as aintask:
             aouttask.ao_channels.add_ao_voltage_chan(self.daq_name + "ao0:1", max_val=10, min_val=-10)
             aintask.ai_channels.add_ai_voltage_chan(self.daq_name + "ai0:1")

@@ -2,6 +2,8 @@ import numpy as np
 from scipy import signal
 
 class Waveforms:
+    """waveform class to generate all the controll waveforms for galvo, voice coil and camera trigger
+    """
     def __init__(self, ls_scale, ls_intercept, sample_freq,
                  vc_vd_slope, vc_vd_intercept):
         self.ls_scale = ls_scale
@@ -20,12 +22,32 @@ class Waveforms:
     
     def fast_waveform(self, freq, vc_amp, vc_pos, exp_time, duration, phase, cam_phase, st,
                       stim_pos, stim_duration, stim_freq, stim_amp):
+        """generate waveform for fast acquisition
+
+        Args:
+            freq (int): frequncy of the volume acquisition
+            vc_amp (float): amplitude (z-range)
+            vc_pos (float): voice coil zero position
+            exp_time (float): exposure time in s
+            duration (float): duration of the waveform in s
+            phase (float): phase of the voice coil signal relative to the galvo signal s
+            cam_phase (int): camera phase in samples
+            st (bool): if TRUE output is sawtooth instead of sine
+            stim_pos (float): time point of the stimulation in s
+            stim_duration (float): duration of the stimulation in s
+            stim_freq (float): frequency of the stimulation
+            stim_amp (float): amplitude of the stimulation
+
+        Returns:
+            awf, dwf (numpy array): analog and digital waveform
+        """        
      
         wf_freq = 1/(freq*exp_time) # in Hz
         vc_amp = vc_amp/2    
         n_samples = int(duration * self.sample_freq)
         time1 = np.linspace(1/self.sample_freq, duration, n_samples) + phase*(1/self.sample_freq)
         time2 = np.linspace(1/self.sample_freq, duration, n_samples)
+        # if sawtooth, filter at 2kHz to smooth edges
         if st:
             wf_saw = signal.sawtooth(wf_freq*time1*(2*np.pi),0.5)*vc_amp + vc_pos
             sos = signal.butter(2, 2000/(self.sample_freq/2), btype='low', output='sos')
@@ -40,7 +62,8 @@ class Waveforms:
             wf_sin_vc = np.sin(wf_freq*time1*(2*np.pi))*vc_amp + vc_pos
             wf_sin_ls = np.sin(wf_freq*time2*(2*np.pi))*vc_amp + vc_pos
             # wf_sin_ls = wf_sin_ls*self.ls_scale + self.ls_intercept
-        
+
+        # if a calibration kernel exists, use it
         if self.kernel_vc is not None and self.kernel_ls is not None:
             # fs = np.fft.fft(wf_sin_vc)
             # k = self.kernel_vc
@@ -59,6 +82,7 @@ class Waveforms:
         else:
             wf_sin_ls = wf_sin_ls*self.ls_scale + self.ls_intercept
         
+        #check the resulting waveform doesn't exceed the limits
         self.check_limits(wf_sin_vc)
         
         exp_time_us = int(exp_time*1e6)
@@ -76,6 +100,7 @@ class Waveforms:
         # shutterwave = np.full(n_samples, True)
         # shutterwave[-1] = False
         
+        # get simulation waveform
         stimwf = self.stimulus_waveform(stim_pos, stim_duration, stim_freq, stim_amp, n_samples)
         
         # dwf = np.vstack((dwf, shutterwave))
@@ -91,6 +116,14 @@ class Waveforms:
         return awf, dwf
     
     def calibrate_fft(self, awf, data, linawf, lindata):
+        """generate the calibration kernel, don't use because voice coil position signal is not reliable
+
+        Args:
+            awf (numpy array): analog waveform
+            data (numpy array): data from uncalibrated acquisition run
+            linawf (numpy array): waveform for linear calibration
+            lindata (numby array): data from linear calibration
+        """
         slope_ls, intercept_ls = np.polyfit(linawf[1,1000:-1], lindata[1,1000:-1], 1)
         # ls_data = (data[1,:] - intercept_ls) / slope_ls
         ls_data = data[1,:]
@@ -140,6 +173,17 @@ class Waveforms:
         return awf, dwf
         
     def stack(self, mid_pos, size, n_steps, exp_time):
+        """generate waveform to acquire a slow stack
+
+        Args:
+            mid_pos (float): middle position of the stack
+            size (float): z extend
+            n_steps (int): number of slices
+            exp_time (float): exposure time of each camera frame in ms
+
+        Returns:
+            numpy array: driving waveform
+        """
         exp_time = exp_time/1000;
         buffer_samples = 0.05 * self.sample_freq;
         step_samples = int(exp_time*self.sample_freq + buffer_samples)
@@ -156,6 +200,19 @@ class Waveforms:
         return awf, dwf
     
     def psf_stack(self, mid_pos, size, n_steps, exp_time, step_size):
+        """generate waveform to take a stack with multiple positions for the lightsheet and for each
+        lightsheet position 31 additional defocus steps of the voice coil
+
+        Args:
+            mid_pos (float): center position of the stack
+            size (float): z-extend
+            n_steps (int): number of light sheet position
+            exp_time (float): camera exposure time
+            step_size (float): step size of each voice coil defocus step
+
+        Returns:
+            numpy array: driving wavefom
+        """
         exp_time = exp_time/1000;
         buffer_samples = 0.05 * self.sample_freq;
         step_samples = int(exp_time*self.sample_freq + buffer_samples)
@@ -180,6 +237,19 @@ class Waveforms:
         return awf, dwf
     
     def calibration_stack(self, pos1, pos2, n_steps, exp_time, step_size):
+        """waveform to generate calibration stack by keeping voice coil at multiple position and varying light sheet
+        (inverse to psf stack)
+
+        Args:
+            pos1 (list): top end of the stack
+            pos2 (list): bottom end of the stack
+            n_steps (int): number of slices
+            exp_time (float): camera exposure time
+            step_size (float): z step size of each defocus step
+
+        Returns:
+            numpy array: driving waveform
+        """
         bottom_pos = (np.min((pos1[0], pos2[0])), np.min((pos1[1], pos2[1])))
         top_pos = (np.max((pos1[0], pos2[0])), np.max((pos1[1], pos2[1])))
         
@@ -268,6 +338,18 @@ class Waveforms:
         return awf
     
     def stimulus_waveform(self, start_pos, duration, frequency, amplitude, n_samples):
+        """waveform for sine auditory stimulus
+
+        Args:
+            start_pos (float): start of the simulus in s
+            duration (float): duration of the stimulus in s
+            frequency (float): frequency
+            amplitude (float): amplitude
+            n_samples (int): total duration of the waveform in number of samples
+
+        Returns:
+            numpy array: stimulus waveform
+        """
         stim_wf = np.zeros(n_samples)
         duration = duration/1000
         time1 = np.linspace(1/self.sample_freq, duration, int(duration*self.sample_freq))
@@ -276,6 +358,14 @@ class Waveforms:
         return stim_wf
     
     def check_limits(self,wf):
+        """check that voice coil waveform stays within limits
+
+        Args:
+            wf (numpy array): voice coil driving waveform
+
+        Raises:
+            ValueError: raise error if outside of bounds
+        """
         if np.any((wf > ((0.333/self.vc_vd_slope)-self.vc_vd_intercept)) | 
                   (wf < ((0.333/self.vc_vd_slope)-self.vc_vd_intercept)*-1)):
             raise ValueError('analog out value for voice coil must be within the limit -0.333 t0 0.333 V') 

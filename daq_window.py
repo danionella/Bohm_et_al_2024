@@ -16,13 +16,20 @@ from QLed import QLed
 
 class StartWindow(QMainWindow):
     def __init__(self, card):
+        """
+         Initialize the widget. 
+         
+         @param card - The NI card to use
+        """
         super().__init__()
         self.pos1 = 0.0
         self.pos2 = 0.0
         self.daq = card
+        # initialize waveform class
         self.wf = Waveforms(3.5588, 5.7279, self.daq.sample_freq,
                             0.09126277240684635,
                             2.029975214187555e-06)
+        # generate the layout and connect signals
         self.generate_layout()
         self.connect_signals()
         self.CalibrateLed.value = False
@@ -37,6 +44,8 @@ class StartWindow(QMainWindow):
         # self.thread.started.connect(self.daq.continous_aq)
         # self.daq.progress.connect(self.live_plot)
         # self.daq.done.connect(self.thread.quit)
+
+        #setup interrupt for live view
         self.liveTimer = QTimer()
         self.liveTimer.timeout.connect(self.live_out)
         self.liveTimer.timeout.connect(self.live_plot)
@@ -45,7 +54,9 @@ class StartWindow(QMainWindow):
 
     
     def start_button_click(self):
-        
+        """start fast data acquisition
+        """        
+        # generate waveforms for fast acquisition
         self.awf, self.dwf = self.wf.fast_waveform(self.scan_freq.value(), self.stack_size.value(),
                                          self.vc_position.value(), self.exp_time.value()/1000,
                                          self.duration_input.value(), self.delay.value(),
@@ -62,10 +73,15 @@ class StartWindow(QMainWindow):
         
         # self.daq.fast_aquisition_camera_leader(self.awf,
         #                                        1/(self.scan_freq.value()*self.exp_time.value()/1000))
+
+        # acquire the data
         self.daq.fast_aquisition_camera_follower(self.awf, self.dwf)
+        # plot the data
         self.plotData()
         
     def live_view(self):
+        """start live view
+        """        
         if not self.isLive:
             # self.thread.start()
             self.isLiveStart = True
@@ -73,6 +89,7 @@ class StartWindow(QMainWindow):
             self.StartButton.setEnabled(False)
             self.CalibrateBtn.setEnabled(False)
             self.daq.continous_aq_setup()
+            # start the interrupt
             self.liveTimer.start(20)
         else:
             # self.thread.requestInterruption()
@@ -83,10 +100,14 @@ class StartWindow(QMainWindow):
             self.CalibrateBtn.setEnabled(True)
         
     def plotData(self):
+        """
+         plot acquired data in main window
+        """
         self.plot.clear()
         plotData1 = self.daq.adata[0,:]
         plotData2 = self.daq.adata[1,:]
         plotData3 = self.daq.ddata.astype(int)
+        # setup xaxis for analog and digital data
         time = np.linspace(1/self.daq.sample_freq,
                            len(plotData1)/self.daq.sample_freq,
                            len(plotData1))
@@ -110,6 +131,7 @@ class StartWindow(QMainWindow):
         self.plot2.plot(time, plot2Data1, pen='r')
         self.plot2.plot(time, plot2Data2, pen='g')
         
+        # if desired, save data
         if self.SaveDataChk.checkState():
             saveData = np.vstack((time, plotData1, plotData2,
                                          self.awf[0,:], self.awf[1,:]))
@@ -118,7 +140,10 @@ class StartWindow(QMainWindow):
             self.save_data(analogData=saveData, digitalData=dsaveData)
         
     def live_plot(self):
+        """this function is called to plot data during live view
+        """        
         if self.isLiveStart:
+            # clear canvas when live view is started
             self.plot.clear()
             self.dispData = self.daq.inData
             xDat = np.arange(np.shape(self.dispData)[1])
@@ -126,15 +151,21 @@ class StartWindow(QMainWindow):
             self.line2 = self.plot.plot(xDat, self.dispData[1,:], pen='r')
             self.isLiveStart = False
         else:
+            # append new data
             self.dispData = np.append(self.dispData,self.daq.inData, axis=1)
+            # distData behaves like a FIFO buffer after reaching 1000 samples
             if np.shape(self.dispData)[1]>1000:
                 self.dispData = self.dispData[:,20:]
             xDat = np.arange(np.shape(self.dispData)[1])
             # print(len(self.dispData))
+
+            #display the data
             self.line1.setData(xDat, self.dispData[0,:])
             self.line2.setData(xDat, self.dispData[1,:])
     
     def live_out(self):
+        """this gets called whenever the ls or vc position values change. Used to set new galvo or voice coil position
+        """        
         outDat = np.zeros([2,1])
         outDat[1,:] = self.ls_position.value()
         outDat[0,:] = self.vc_position.value()
@@ -184,63 +215,91 @@ class StartWindow(QMainWindow):
         self.ls_position.setValue(self.ls_abs_min + new_pos*self.ls_scale.value())    
             
     def shutter_clicked(self):
+        """
+         Called when shutter button is clicked
+        """
+
         self.daq.shutter()
+        # Set button color to red or black
         if self.daq.isOnShutter:
             self.ShutterButton.setStyleSheet("color: red")
         else:
             self.ShutterButton.setStyleSheet("color: black")
             
     def stack_clicked(self):
+        """
+         Called when the acquire stack button is clicked
+        """
         if self.isLive:
             self.live_view()
-            
+
+        # generate waveforms for stack acquisition    
         awf, dwf = self.wf.stack(self.vc_position.value(), 
                             self.stack_size.value(),
                             self.n_steps.value(),
                             self.exp_time.value())
+        # open shutter
         if not self.daq.isOnShutter:
             self.shutter_clicked()
+        # acquire stack
         self.daq.acquire_stack(awf, dwf)
+        # close shutter
         self.shutter_clicked()
         
     def psf_stack_clicked(self):
+        """
+         Called when the acquire psf stack button is clicked
+
+        """
         if self.isLive:
             self.live_view()
-            
+        # calculate waveform    
         awf, dwf = self.wf.psf_stack(self.vc_position.value(), 
                             self.stack_size.value(),
                             self.n_steps.value(),
                             self.exp_time.value(),
                             self.step_size.value())
+        # open shutter
         if not self.daq.isOnShutter:
             self.shutter_clicked()
+        # acquire data
         self.daq.acquire_stack(awf, dwf)
+        # close shutter
         self.shutter_clicked()
         
     def get_pos1_clicked(self):
+        """called when pos1 is clicked, saves the current position of galvo and voice coil
+        """        
         self.pos1 = (self.vc_position.value(),
                      self.ls_position.value())
         self.GetPos1Button.setText('Pos1:' + str(self.pos1))
         
     def get_pos2_clicked(self):
+        """called when pos2 is clicked, saves the current position of galvo and voice coil
+        """
         self.pos2 = (self.vc_position.value(),
                      self.ls_position.value())
         self.GetPos2Button.setText('Pos2:' + str(self.pos2))
     
     def calibration_stack_clicked(self):
+        """called when calibration stack button is clicked, triggers camera and outputs waveform for galvo and voice coil for calibration stack
+        """        
         if self.isLive:
             self.live_view()
-            
+        # calculate calibration waveform, pos1 and pos2 are the top and bottom positions    
         awf, dwf = self.wf.calibration_stack(self.pos1, 
                             self.pos2,
                             self.n_steps.value(),
                             self.exp_time.value(),
                             self.step_size.value())
+        # open shutter
         if not self.daq.isOnShutter:
             self.shutter_clicked()
+        # acquire data
         data = self.daq.acquire_stack(awf, dwf)
+        # close shutter
         self.shutter_clicked()
-        
+        # plot data
         self.plot.clear()
  
         time = np.linspace(1/self.daq.sample_freq,
@@ -249,22 +308,34 @@ class StartWindow(QMainWindow):
 
         self.plot.plot(time, awf[0,:], pen='y')
         self.plot.plot(time, awf[1,:], pen='m')
-        
+        # save data
         saveData = np.vstack((time, awf[0,:], awf[1,:], data))
         saveData = np.transpose(saveData)
         self.save_data(data=saveData)
         
     def calibrate_lightsheet_clicked(self):
+        """
+         opens new window to load and calculate light sheet focus calibration
+        """
         self.autofocuswind = AutoFocusWindow()
         self.autofocuswind.applyClicked.connect(self.on_calibrate_lightsheet_apply)
         self.autofocuswind.show()
         
     def on_calibrate_lightsheet_apply(self, values):
+        """
+         Called when user clicks on the apply button in the autofocus window
+         
+         @param values - list of calibration values
+        """
+        # set values
         self.manual_calibration_values_clicked(values[0], values[1])
         self.wf.ls_out_intercept = values[3]
         self.wf.ls_out_scale = values[2]
         
     def calibrate_waveform(self):
+        """
+         calibrate galvo and light sheet, used after one fast acquisition
+        """
         # xcorr = signal.correlate(self.daq.adata[0,:]-np.mean(self.daq.adata[0,:]),
         #                          self.daq.adata[1,:]-np.mean(self.daq.adata[1,:]))
         # lags = signal.correlation_lags(len(self.daq.adata[0,:]),
@@ -281,6 +352,8 @@ class StartWindow(QMainWindow):
             
         
     def clear_calibration_clicked(self):
+        """clear fast acquisition calibration
+        """
         self.wf.kernel_ls = None
         self.wf.kernel_vc = None
         self.CalibrateLed.value = False
@@ -309,11 +382,16 @@ class StartWindow(QMainWindow):
         self.plotData()
     
     def select_path_clicked(self):
+        """called when select path is clicked, set directory to save data
+        """
         file = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
         self.DataPath.setText(file)
         
     def save_data(self, **data):
+        """save data as *.npz to selected folder
+        """
         files = glob(self.DataPath.text() + '\data*.npz')
+        # increment data name by +1
         if files :
             matches = re.search('(?<=data)[0-9]+', files[-1])
             new_iter = int(matches[0]) + 1
@@ -340,6 +418,8 @@ class StartWindow(QMainWindow):
         self.plotData()
         
     def debug_button_clicked(self):
+        """called when debug button is clicked, placeholder function to put debug code
+        """
         awf = self.wf.multi_freq_sawtooth(1, 200, 5, 5, 0.4, -0.7)
         awf = np.vstack((awf, np.zeros(awf.shape)))
         
@@ -357,12 +437,20 @@ class StartWindow(QMainWindow):
         self.save_data(data=saveData)
         
     def manual_calibration_values_clicked(self, ls_scale, ls_intercept):
+        """called when manual calibration is clicked to use manual z-calibration values
+
+        Args:
+            ls_scale (float): slace of galvo / vc calibration
+            ls_intercept (float): intercept of galvo / vc calibration
+        """
         self.wf.ls_scale = ls_scale
         self.ls_scale.setValue(ls_scale)
         self.wf.ls_intercept = ls_intercept
         self.ls_intercept.setValue(ls_intercept)
         
     def generate_layout(self):
+        """hardcoded layout with all controlls in the main window
+        """        
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         
@@ -606,42 +694,47 @@ class StartWindow(QMainWindow):
         self.parentLayout.addWidget(self.tab2)
         
     def connect_signals(self):
-      self.StartButton.clicked.connect(self.start_button_click)
-      self.CalibrateBtn.clicked.connect(self.calibrate_waveform)
-      self.LiveButton.clicked.connect(self.live_view)
-      self.ShutterButton.clicked.connect(self.shutter_clicked)
-      self.StackButton.clicked.connect(self.stack_clicked)
-      self.PsfStackButton.clicked.connect(self.psf_stack_clicked)
-      # self.PulseResponse.clicked.connect(self.pulse_response_clicked)
-      self.DataPathButton.clicked.connect(self.select_path_clicked)
-      self.ClearCalibrationButton.clicked.connect(self.clear_calibration_clicked)
-      self.BeatCalibrationButton.clicked.connect(self.beat_calibration_clicked)
-      self.GetPos1Button.clicked.connect(self.get_pos1_clicked)
-      self.GetPos2Button.clicked.connect(self.get_pos2_clicked)
-      self.CalibrationStackButton.clicked.connect(self.calibration_stack_clicked)
-      self.StartChirpButton.clicked.connect(self.start_chirp_clicked)
-      self.DebugButton.clicked.connect(self.debug_button_clicked)
-      self.CalibrateLsButton.clicked.connect(self.calibrate_lightsheet_clicked)
-      self.ManualCalibrationValuesButton.clicked.connect(lambda: \
-                                                         self.manual_calibration_values_clicked(self.ls_scale.value(), self.ls_intercept.value()))
-      
-      self.ls_position_slider.valueChanged.connect(lambda x: self.ls_position.setValue(x/1000))
-      self.ls_position.valueChanged.connect(lambda x: self.ls_position_slider.setValue(x*1000))
+        """connect all the controlls to their respective functions
+        """      
+        self.StartButton.clicked.connect(self.start_button_click)
+        self.CalibrateBtn.clicked.connect(self.calibrate_waveform)
+        self.LiveButton.clicked.connect(self.live_view)
+        self.ShutterButton.clicked.connect(self.shutter_clicked)
+        self.StackButton.clicked.connect(self.stack_clicked)
+        self.PsfStackButton.clicked.connect(self.psf_stack_clicked)
+        # self.PulseResponse.clicked.connect(self.pulse_response_clicked)
+        self.DataPathButton.clicked.connect(self.select_path_clicked)
+        self.ClearCalibrationButton.clicked.connect(self.clear_calibration_clicked)
+        self.BeatCalibrationButton.clicked.connect(self.beat_calibration_clicked)
+        self.GetPos1Button.clicked.connect(self.get_pos1_clicked)
+        self.GetPos2Button.clicked.connect(self.get_pos2_clicked)
+        self.CalibrationStackButton.clicked.connect(self.calibration_stack_clicked)
+        self.StartChirpButton.clicked.connect(self.start_chirp_clicked)
+        self.DebugButton.clicked.connect(self.debug_button_clicked)
+        self.CalibrateLsButton.clicked.connect(self.calibrate_lightsheet_clicked)
+        self.ManualCalibrationValuesButton.clicked.connect(lambda: \
+                                                            self.manual_calibration_values_clicked(self.ls_scale.value(), self.ls_intercept.value()))
         
-      self.vc_position_slider.valueChanged.connect(lambda x: self.vc_position.setValue(x/1000))
-      self.vc_position.valueChanged.connect(lambda x: self.vc_position_slider.setValue(int(x*1000)))
-      
-      self.combi_position_slider.valueChanged.connect(lambda x: self.combi_position.setValue(x/1000))
-      self.combi_position.valueChanged.connect(lambda x: self.combi_position_slider.setValue(int(x*1000)))
-      self.combi_position.valueChanged.connect(self.move_combine)
-      
-      self.combi_position_slider_label.stateChanged.connect(self.combine_pos)
-      self.combi_position_slider_label.setCheckState(False)
-      self.combi_position.setEnabled(False)
-      self.combi_position_slider.setEnabled(False)
+        self.ls_position_slider.valueChanged.connect(lambda x: self.ls_position.setValue(x/1000))
+        self.ls_position.valueChanged.connect(lambda x: self.ls_position_slider.setValue(x*1000))
+            
+        self.vc_position_slider.valueChanged.connect(lambda x: self.vc_position.setValue(x/1000))
+        self.vc_position.valueChanged.connect(lambda x: self.vc_position_slider.setValue(int(x*1000)))
+        
+        self.combi_position_slider.valueChanged.connect(lambda x: self.combi_position.setValue(x/1000))
+        self.combi_position.valueChanged.connect(lambda x: self.combi_position_slider.setValue(int(x*1000)))
+        self.combi_position.valueChanged.connect(self.move_combine)
+        
+        self.combi_position_slider_label.stateChanged.connect(self.combine_pos)
+        self.combi_position_slider_label.setCheckState(False)
+        self.combi_position.setEnabled(False)
+        self.combi_position_slider.setEnabled(False)
       
       
 class AutoFocusWindow(QWidget):
+    """autofocus window
+    """
+
     applyClicked = pyqtSignal(list)
     
     def __init__(self):
@@ -703,6 +796,8 @@ class AutoFocusWindow(QWidget):
         self.autofocusButton.clicked.connect(self.run_autofocus)
         
     def apply(self):
+        """called when the apply button is clicked, sends list with values to main window
+        """
         self.applyClicked.emit([self.slope.value(), self.intercept.value(),
                                 self.af.measured_slope_out, self.af.measured_intercept_out])
         
@@ -716,8 +811,13 @@ class AutoFocusWindow(QWidget):
             self.csvPath.setText(file)
         
     def run_autofocus(self):
+        """run the autofocus the get z-calibration
+        """
+        # load data
         self.af.load_data(self.imagePath.text(), self.csvPath.text())
+        # run autofocus
         self.af.run_af()
+        # display results
         self.slope.setValue(self.af.measured_slope)
         self.intercept.setValue(self.af.measured_intercept)
         self.plt.clear()
