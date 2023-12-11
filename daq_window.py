@@ -519,7 +519,7 @@ class StartWindow(QMainWindow):
         self.stack_size_label = QLabel('Stack size (V)')
         self.stack_size.setValue(0.07)
         
-        self.n_steps = QSpinBox(minimum=1, maximum=500, parent=self.central_widget)
+        self.n_steps = QSpinBox(minimum=1, maximum=2000, parent=self.central_widget)
         self.n_steps_label = QLabel('n steps')
         self.n_steps.setValue(70)
         
