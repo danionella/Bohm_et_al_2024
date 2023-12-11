@@ -241,9 +241,9 @@ class Daq(QObject):
         """        
         # while not self.thread().isInterruptionRequested():
         # try:
-            self.reader.read_many_sample(data = self.inData,
-                                    number_of_samples_per_channel = 20)
-            self.writer.write_many_sample(writeData)
+        self.reader.read_many_sample(data = self.inData,
+                                number_of_samples_per_channel = 20)
+        self.writer.write_many_sample(writeData)
         # finally:
             # print('no data acquired')
             
