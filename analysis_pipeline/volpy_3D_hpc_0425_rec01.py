@@ -642,6 +642,8 @@ def run_spikepursuit(cell_n):
 
     
 # run the analysis 
+
+#load mean fluorescence for each plane
 imfiles = sorted(glob('/sc-external/ag-judkewitz-hpc-rw/user/urs/20230425_fish_PTZ/rec01/rec01_plane_[0-9][0-9]_expcorr_motion_corrected_meanFrame.tif'))
 print(imfiles)
 ims = []
@@ -649,11 +651,13 @@ for f in imfiles:
     ims.append(io.imread(f))
     # print('loading image: ' + str(f))
 
+# load the 3D segmentation
 masks_3d = np.load('/sc-external/ag-judkewitz-hpc-rw/user/urs/20230425_fish_PTZ/rec01/y_shift_stack_seg.npy', allow_pickle=True)
 mask = masks_3d[()]['masks']
 
 idx1, idx2 = get_index()
 
+# recalculate the shifts between the planes due to the lateral displacement of the voicecoil
 shifts = []
 # n = [k for k in range(16)]
 n = idx1
@@ -715,10 +719,12 @@ fr = 500
 window_length = int(fr * args['template_size'])
 fnames = sorted(glob('/sc-external/ag-judkewitz-hpc-rw/user/urs/20230425_fish_PTZ/rec01/*.mmap'))
 
+# load memory maped data
 images, dims, T = load_memmap(fnames) 
 
 pool = mp.Pool(10)
 
+# run volpy
 out = pool.map(run_spikepursuit, [cell_n for cell_n in range(1,np.max(mask)+1)])
 
 # out = []
@@ -726,6 +732,7 @@ out = pool.map(run_spikepursuit, [cell_n for cell_n in range(1,np.max(mask)+1)])
 #     print('running cell number: ' + str(cell_n))
 #     out.append(run_spikepursuit(cell_n))
 
+# save results
 np.save('/sc-external/ag-judkewitz-hpc-rw/user/urs/20230425_fish_PTZ/rec01/volpy_3D_results.npy', out)
 pool.close()
 print('finished')
